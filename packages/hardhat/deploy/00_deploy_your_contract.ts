@@ -34,7 +34,10 @@ const deployYourContract: DeployFunction = async function (hre: HardhatRuntimeEn
 
   // Get the deployed contract to interact with it after deploying.
   const yourContract = await hre.ethers.getContract<Contract>("YourContract", deployer);
-  console.log("👋 Initial greeting:", await yourContract.greeting());
+  console.log("🎮 MemeTinder Game contract deployed!");
+  console.log("📊 Contract owner:", await yourContract.owner());
+  console.log("💰 Swipe fee:", await yourContract.SWIPE_FEE());
+  console.log("🎁 Reward threshold:", await yourContract.REWARD_THRESHOLD());
 };
 
 export default deployYourContract;

@@ -1,9 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { Blink, useActionsRegistryInterval, useBlink } from "@dialectlabs/blinks";
+import { useEvmWagmiAdapter } from "@dialectlabs/blinks/hooks/evm";
+import "@dialectlabs/blinks/index.css";
+import { ConnectKitButton, useModal } from "connectkit";
 import { PanInfo, motion, useMotionValue, useTransform } from "framer-motion";
 import type { NextPage } from "next";
+import { useAccount } from "wagmi";
 import { ClockIcon, FireIcon, HeartIcon, TrophyIcon, XMarkIcon } from "@heroicons/react/24/solid";
+import { useScaffoldReadContract, useScaffoldWriteContract, useWatchBalance } from "~~/hooks/scaffold-eth";
 import { getLocalMemes } from "~~/utils/memeLoader";
 import { notification } from "~~/utils/scaffold-eth";
 
@@ -19,6 +25,14 @@ interface VoteResult {
   vote: "like" | "dislike";
   timestamp: number;
   txHash?: string;
+  status?: "pending" | "confirmed" | "failed";
+}
+
+interface PendingTransaction {
+  memeId: number;
+  vote: "like" | "dislike";
+  timestamp: number;
+  retryCount?: number;
 }
 
 interface GameResult {
@@ -45,9 +59,58 @@ const MemeTinder: NextPage = () => {
   const [timeLeft, setTimeLeft] = useState(GAME_DURATION);
   const [voteResults, setVoteResults] = useState<VoteResult[]>([]);
   const [gameResult, setGameResult] = useState<GameResult | null>(null);
-  const [isVoting, setIsVoting] = useState(false);
 
-  // 始终创建这些hooks，无论游戏状态如何
+  // 预充值相关状态
+  const [showDepositModal, setShowDepositModal] = useState(false);
+  const [depositAmount, setDepositAmount] = useState("0.01"); // 默认0.01 MON
+
+  // Wallet connection
+  const { address, isConnected } = useAccount();
+
+  // 合约交互hooks
+  const { writeContractAsync: recordSwipe, isPending: isSwipePending } = useScaffoldWriteContract({
+    contractName: "YourContract",
+  });
+
+  // 预充值hooks
+  const { writeContractAsync: depositFunds, isPending: isDepositing } = useScaffoldWriteContract({
+    contractName: "YourContract",
+  });
+
+  // 提取余额hooks
+  const { writeContractAsync: withdrawFunds, isPending: isWithdrawing } = useScaffoldWriteContract({
+    contractName: "YourContract",
+  });
+
+  // 读取用户统计（现在包含合约内余额）
+  const { data: userStats, refetch: refetchUserStats } = useScaffoldReadContract({
+    contractName: "YourContract",
+    functionName: "getUserStats",
+    args: [address],
+  });
+
+  // 读取下次奖励需要的滑动次数
+  const { data: swipesToNextReward } = useScaffoldReadContract({
+    contractName: "YourContract",
+    functionName: "getSwipesToNextReward",
+    args: [address],
+  });
+
+  // 监听用户钱包余额
+  const { data: balance, isLoading: isBalanceLoading } = useWatchBalance({
+    address: address,
+  });
+
+  // Blink相关hooks
+  useActionsRegistryInterval();
+  const { setOpen } = useModal();
+
+  // Wagmi adapter for Blink
+  const { adapter } = useEvmWagmiAdapter({
+    onConnectWalletRequest: async () => {
+      setOpen(true);
+    },
+  }); // 始终创建这些hooks，无论游戏状态如何
   const x = useMotionValue(0);
   const rotate = useTransform(x, [-200, 200], [-30, 30]);
   const opacity = useTransform(x, [-200, -100, 0, 100, 200], [0, 1, 1, 1, 0]);
@@ -125,10 +188,10 @@ const MemeTinder: NextPage = () => {
 
   // 开始游戏
   const startGame = () => {
-    // if (!isConnected) {
-    //   notification.error("请先连接钱包");
-    //   return;
-    // }
+    if (!isConnected) {
+      notification.error("请先连接钱包");
+      return;
+    }
     setGameStarted(true);
     setTimeLeft(GAME_DURATION);
     setCurrentMemeIndex(0);
@@ -139,53 +202,124 @@ const MemeTinder: NextPage = () => {
     setGameEnded(false);
   };
 
-  // 投票交易（模拟）
-  const submitVote = async (vote: "like" | "dislike") => {
-    // if (!isConnected) {
-    //   notification.error("请先连接钱包");
+  // 直接调用合约进行投票（从预充值余额扣除）
+  const handleVote = async (vote: "like" | "dislike") => {
+    if (!isConnected) {
+      notification.error("请先连接钱包");
+      return;
+    }
+
+    // 检查用户合约内余额（暂时跳过检查，让合约报错）
+    // const contractBalance = userStats?.[2] || BigInt(0);
+    // if (contractBalance < BigInt("1000000000000000")) { // 0.001 MON
+    //   notification.error("合约内余额不足，请先充值");
+    //   setShowDepositModal(true);
     //   return;
     // }
 
-    setIsVoting(true);
+    const currentMeme = TOTAL_MEMES[currentMemeIndex];
+
     try {
-      // 这里应该调用智能合约进行投票
-      // 暂时模拟交易延迟 - demo版本更快
-      await new Promise(resolve => setTimeout(resolve, 500 + Math.random() * 1000));
+      // 调用合约记录滑动（无需付款，从预充值扣除）
+      const tx = await recordSwipe({
+        functionName: "recordSwipe",
+      });
 
-      const voteResult: VoteResult = {
-        memeId: currentMeme.id,
-        vote,
-        timestamp: Date.now(),
-        txHash: `0x${Math.random().toString(16).substring(2, 66)}`, // 模拟交易哈希
-      };
-
-      setVoteResults(prev => [...prev, voteResult]);
-
+      // 立即更新计数器
       if (vote === "like") {
         setLikes(prev => prev + 1);
       } else {
         setDislikes(prev => prev + 1);
       }
 
-      notification.success(`投票成功! ${vote === "like" ? "👍" : "👎"}`);
+      // 记录投票结果
+      const voteResult: VoteResult = {
+        memeId: currentMeme.id,
+        vote,
+        timestamp: Date.now(),
+        status: "confirmed",
+        txHash: tx,
+      };
 
-      // 检查是否完成所有投票
+      setVoteResults(prev => [...prev, voteResult]);
+
+      // 显示成功消息
+      notification.success(`投票成功! ${vote === "like" ? "👍" : "👎"} 从预充值扣除 0.001 MON`);
+
+      // 刷新用户统计
+      refetchUserStats();
+
+      // 进入下一张图片
       if (currentMemeIndex >= TOTAL_MEMES.length - 1) {
         setGameEnded(true);
         calculateGameResult();
       } else {
         nextMeme();
       }
-    } catch (error) {
-      notification.error("投票失败，请重试");
-      console.error("Vote error:", error);
-    } finally {
-      setIsVoting(false);
+    } catch (error: any) {
+      console.error("Vote failed:", error);
+      if (error.message?.includes("Insufficient balance")) {
+        notification.error("合约内余额不足，请先充值");
+        setShowDepositModal(true);
+      } else {
+        notification.error(`投票失败: ${error.message || "请检查网络连接"}`);
+      }
+    }
+  };
+
+  // 处理预充值
+  const handleDeposit = async () => {
+    if (!isConnected) {
+      notification.error("请先连接钱包");
+      return;
+    }
+
+    try {
+      const amountInWei = BigInt(Math.floor(parseFloat(depositAmount) * 1e18));
+      
+      const tx = await depositFunds({
+        functionName: "deposit",
+        value: amountInWei,
+      });
+
+      notification.success(`充值成功! 充值了 ${depositAmount} MON`);
+      setShowDepositModal(false);
+      refetchUserStats();
+    } catch (error: any) {
+      console.error("Deposit failed:", error);
+      notification.error(`充值失败: ${error.message || "请检查钱包余额"}`);
+    }
+  };
+
+  // 处理提现
+  const handleWithdraw = async () => {
+    if (!isConnected) {
+      notification.error("请先连接钱包");
+      return;
+    }
+
+    if (!userStats || !userStats[2] || Number(userStats[2]) === 0) {
+      notification.error("合约内没有余额可提现");
+      return;
+    }
+
+    try {
+      await withdrawFunds({
+        functionName: "withdraw",
+        args: [userStats[2]],
+      } as any);
+
+      const withdrawAmountFormatted = (Number(userStats[2]) / 1e18).toFixed(4);
+      notification.success(`提现成功! 提现了 ${withdrawAmountFormatted} MON`);
+      refetchUserStats();
+    } catch (error: any) {
+      console.error("Withdraw failed:", error);
+      notification.error(`提现失败: ${error.message || "交易被拒绝"}`);
     }
   };
 
   const handleDragEnd = (event: any, info: PanInfo) => {
-    if (isVoting || gameEnded) return;
+    if (gameEnded) return; // 移除 isVoting 检查，允许快速投票
 
     const threshold = 100;
 
@@ -196,7 +330,7 @@ const MemeTinder: NextPage = () => {
 
       // 移动卡片动画
       setTimeout(() => {
-        submitVote(vote);
+        handleVote(vote);
         x.set(0);
         setIsAnimating(false);
       }, 200);
@@ -210,24 +344,24 @@ const MemeTinder: NextPage = () => {
   };
 
   const handleLike = () => {
-    if (isAnimating || isVoting || gameEnded) return;
+    if (isAnimating || gameEnded) return;
     setIsAnimating(true);
     x.set(300);
 
     setTimeout(() => {
-      submitVote("like");
+      handleVote("like");
       x.set(0);
       setIsAnimating(false);
     }, 200);
   };
 
   const handleDislike = () => {
-    if (isAnimating || isVoting || gameEnded) return;
+    if (isAnimating || gameEnded) return;
     setIsAnimating(true);
     x.set(-300);
 
     setTimeout(() => {
-      submitVote("dislike");
+      handleVote("dislike");
       x.set(0);
       setIsAnimating(false);
     }, 200);
@@ -245,11 +379,58 @@ const MemeTinder: NextPage = () => {
     return (
       <div className="min-h-screen bg-gradient-to-br from-pink-400 via-purple-500 to-indigo-600 flex items-center justify-center p-4">
         <div className="bg-white rounded-3xl p-8 max-w-md w-full text-center shadow-2xl">
+          {/* 钱包连接按钮 */}
+          <div className="mb-4 flex justify-center">
+            <ConnectKitButton />
+          </div>
+
           <div className="mb-6">
             <FireIcon className="w-16 h-16 text-orange-500 mx-auto mb-4" />
             <h1 className="text-4xl font-bold text-gray-800 mb-2">Meme Battle</h1>
             <p className="text-gray-600">投票选出最火的Meme，赢取奖励！</p>
           </div>
+
+          {/* 钱包余额显示 */}
+          {isConnected && balance && (
+            <div className="bg-blue-50 rounded-lg p-3 mb-4">
+              <div className="text-sm text-blue-700 mb-1">💰 当前余额</div>
+              <div className="font-bold text-blue-800">
+                {parseFloat(balance.formatted).toFixed(4)} {balance.symbol}
+              </div>
+            </div>
+          )}
+
+          {/* 用户统计显示 */}
+          {isConnected && userStats && (
+            <div className="bg-green-50 rounded-lg p-3 mb-4">
+              <div className="text-sm text-green-700 mb-1">📊 历史记录</div>
+              <div className="text-xs text-green-600">
+                总滑动: {userStats[0]?.toString() || "0"} 次 | 累计奖励:{" "}
+                {userStats[1] ? parseFloat((Number(userStats[1]) / 1e18).toString()).toFixed(4) : "0"} MON
+              </div>
+              <div className="text-xs text-green-600 mt-1">
+                合约内余额: {userStats[2] ? parseFloat((Number(userStats[2]) / 1e18).toString()).toFixed(4) : "0"} MON
+              </div>
+              {swipesToNextReward && (
+                <div className="text-xs text-green-600 mt-1">
+                  距离下次奖励还需: {swipesToNextReward.toString()} 次滑动
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 预充值按钮 */}
+          {isConnected && (
+            <div className="mb-4">
+              <button
+                onClick={() => setShowDepositModal(true)}
+                className="w-full bg-gradient-to-r from-green-500 to-blue-600 text-white font-bold py-2 px-4 rounded-lg hover:from-green-600 hover:to-blue-700 transition-all duration-300"
+              >
+                预充值到合约 💰
+              </button>
+              <p className="text-xs text-gray-500 mt-1">预充值后无需每次确认交易</p>
+            </div>
+          )}
 
           <div className="space-y-4 mb-8">
             <div className="flex items-center justify-between">
@@ -338,12 +519,57 @@ const MemeTinder: NextPage = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-pink-400 via-purple-500 to-indigo-600 p-4">
-      <div className="max-w-md mx-auto">
-        {/* Header */}
-        <div className="text-center mb-8 pt-8">
-          <h1 className="text-4xl font-bold text-white mb-2">Meme Battle 🔥</h1>
-          <p className="text-white/80">左滑不喜欢，右滑喜欢</p>
+    <>
+      <div className="min-h-screen bg-gradient-to-br from-pink-400 via-purple-500 to-indigo-600 p-4">
+        <div className="max-w-md mx-auto">
+          {/* Header */}
+          <div className="text-center mb-8 pt-8">
+            {/* 钱包连接按钮 */}
+            <div className="mb-4 flex justify-center">
+              <ConnectKitButton />
+            </div>
+
+            <h1 className="text-4xl font-bold text-white mb-2">Meme Battle 🔥</h1>
+            <p className="text-white/80">左滑不喜欢，右滑喜欢</p>
+            <p className="text-white/60 text-sm mt-1">每次投票从预充值余额扣除 0.001 MON</p>
+
+            {/* 钱包余额显示 */}
+            {isConnected && balance && (
+              <div className="flex items-center justify-center gap-2 mt-2">
+                <span className="text-white/80 text-sm">
+                  💰 钱包余额: {parseFloat(balance.formatted).toFixed(4)} {balance.symbol}
+                </span>
+              </div>
+            )}
+
+            {/* 合约内余额显示 */}
+            {isConnected && userStats && (
+              <div className="flex flex-col items-center gap-2 mt-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-yellow-300 text-sm">
+                    🏦 合约余额: {userStats[2] ? parseFloat((Number(userStats[2]) / 1e18).toString()).toFixed(4) : "0"} MON
+                  </span>
+                </div>
+                
+                {/* 充值和提现按钮 */}
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setShowDepositModal(true)}
+                    className="px-3 py-1 bg-green-500 text-white text-xs rounded-full hover:bg-green-600 transition-colors"
+                  >
+                    💰 充值
+                  </button>
+                  <button
+                    onClick={handleWithdraw}
+                    disabled={!userStats[2] || Number(userStats[2]) === 0 || isWithdrawing}
+                    className="px-3 py-1 bg-purple-500 text-white text-xs rounded-full hover:bg-purple-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isWithdrawing ? "处理中..." : "🎁 提现"}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
 
           {/* 时间倒计时 */}
           <div className="flex items-center justify-center gap-2 mt-4 mb-4">
@@ -353,8 +579,27 @@ const MemeTinder: NextPage = () => {
             </span>
           </div>
 
+          {/* 用户统计 */}
+          {isConnected && userStats && (
+            <div className="flex items-center justify-center gap-2 mb-2">
+              <span className="text-white/80 text-sm">
+                总滑动: {userStats[0]?.toString() || "0"} 次 | 累计奖励:{" "}
+                {userStats[1] ? (Number(userStats[1]) / 1e18).toFixed(3) : "0"} MON
+              </span>
+            </div>
+          )}
+
+          {/* 距离下次奖励 */}
+          {isConnected && swipesToNextReward && (
+            <div className="flex items-center justify-center gap-2 mb-2">
+              <span className="text-orange-400 text-sm">
+                距离下次奖励还需要: {swipesToNextReward.toString()} 次滑动
+              </span>
+            </div>
+          )}
+
           {/* Stats */}
-          <div className="flex justify-center gap-8 mt-4">
+          <div className="flex justify-center gap-6 mt-4">
             <div className="text-center">
               <div className="text-2xl font-bold text-white">{likes}</div>
               <div className="text-white/80 text-sm">👍 喜欢</div>
@@ -367,6 +612,13 @@ const MemeTinder: NextPage = () => {
               <div className="text-2xl font-bold text-white">{likes + dislikes}</div>
               <div className="text-white/80 text-sm">🗳️ 总计</div>
             </div>
+            {/* 余额显示 */}
+            {isConnected && balance && (
+              <div className="text-center">
+                <div className="text-lg font-bold text-yellow-300">{parseFloat(balance.formatted).toFixed(3)}</div>
+                <div className="text-white/80 text-sm">💰 {balance.symbol}</div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -410,13 +662,10 @@ const MemeTinder: NextPage = () => {
                 }}
               />
 
-              {/* 投票状态指示器 */}
-              {isVoting && (
-                <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-                  <div className="bg-white rounded-lg p-4 text-center">
-                    <div className="animate-spin w-8 h-8 border-4 border-purple-500 border-t-transparent rounded-full mx-auto mb-2"></div>
-                    <div className="text-sm text-gray-600">投票中...</div>
-                  </div>
+              {/* 交易处理状态指示器 */}
+              {isSwipePending && (
+                <div className="absolute top-2 right-2 bg-orange-500 text-white px-2 py-1 rounded-full text-xs">
+                  交易处理中...
                 </div>
               )}
 
@@ -452,7 +701,7 @@ const MemeTinder: NextPage = () => {
         <div className="flex justify-center gap-8 mt-8">
           <button
             onClick={handleDislike}
-            disabled={isAnimating || isVoting}
+            disabled={isAnimating} // 移除 isVoting，允许快速投票
             className="w-16 h-16 bg-white rounded-full shadow-lg flex items-center justify-center hover:scale-110 transition-transform disabled:opacity-50"
           >
             <XMarkIcon className="w-8 h-8 text-red-500" />
@@ -460,7 +709,7 @@ const MemeTinder: NextPage = () => {
 
           <button
             onClick={handleLike}
-            disabled={isAnimating || isVoting}
+            disabled={isAnimating} // 移除 isVoting，允许快速投票
             className="w-16 h-16 bg-white rounded-full shadow-lg flex items-center justify-center hover:scale-110 transition-transform disabled:opacity-50"
           >
             <HeartIcon className="w-8 h-8 text-pink-500" />
@@ -482,7 +731,96 @@ const MemeTinder: NextPage = () => {
 
         {/* 提示信息 */}
         <div className="mt-6 text-center">
-          <p className="text-white/60 text-sm">💡 每次投票都会进行链上交易，完成所有投票可获得奖励</p>
+          <p className="text-white/60 text-sm">💡 预充值后即可快速滑动，完成所有投票可获得奖励</p>
+        </div>
+      </div>
+
+      {/* 充值模态框 */}
+      <DepositModal
+        isOpen={showDepositModal}
+        onClose={() => setShowDepositModal(false)}
+        depositAmount={depositAmount}
+        setDepositAmount={setDepositAmount}
+        onDeposit={handleDeposit}
+        isLoading={isDepositing}
+      />
+    </>
+  );
+};
+
+// 充值模态框组件
+const DepositModal = ({
+  isOpen,
+  onClose,
+  depositAmount,
+  setDepositAmount,
+  onDeposit,
+  isLoading,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  depositAmount: string;
+  setDepositAmount: (amount: string) => void;
+  onDeposit: () => void;
+  isLoading: boolean;
+}) => {
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl p-6 max-w-sm w-full">
+        <h2 className="text-2xl font-bold text-gray-800 mb-4 text-center">预充值到合约</h2>
+        <p className="text-gray-600 text-sm mb-4 text-center">
+          预充值后，您可以在游戏中快速滑动，无需每次确认交易
+        </p>
+        
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-700 mb-2">充值金额 (MON)</label>
+          <input
+            type="number"
+            step="0.001"
+            value={depositAmount}
+            onChange={(e) => setDepositAmount(e.target.value)}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            placeholder="0.01"
+            min="0.001"
+          />
+          <div className="flex gap-2 mt-2">
+            <button
+              onClick={() => setDepositAmount("0.01")}
+              className="px-3 py-1 bg-gray-100 rounded text-sm hover:bg-gray-200"
+            >
+              0.01
+            </button>
+            <button
+              onClick={() => setDepositAmount("0.05")}
+              className="px-3 py-1 bg-gray-100 rounded text-sm hover:bg-gray-200"
+            >
+              0.05
+            </button>
+            <button
+              onClick={() => setDepositAmount("0.1")}
+              className="px-3 py-1 bg-gray-100 rounded text-sm hover:bg-gray-200"
+            >
+              0.1
+            </button>
+          </div>
+        </div>
+
+        <div className="flex gap-3">
+          <button
+            onClick={onClose}
+            className="flex-1 px-4 py-2 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50"
+          >
+            取消
+          </button>
+          <button
+            onClick={onDeposit}
+            disabled={isLoading || !depositAmount || parseFloat(depositAmount) <= 0}
+            className="flex-1 px-4 py-2 bg-gradient-to-r from-green-500 to-blue-600 text-white rounded-lg hover:from-green-600 hover:to-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isLoading ? "处理中..." : "充值"}
+          </button>
         </div>
       </div>
     </div>
