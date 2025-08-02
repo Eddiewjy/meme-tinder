@@ -110,7 +110,27 @@ const MemeTinder: NextPage = () => {
     onConnectWalletRequest: async () => {
       setOpen(true);
     },
-  }); // 始终创建这些hooks，无论游戏状态如何
+  });
+
+  // 监听钱包连接状态变化，连接成功后关闭modal
+  useEffect(() => {
+    if (isConnected) {
+      // 钱包连接成功后，延迟一下再关闭modal，确保连接过程完成
+      const timer = setTimeout(() => {
+        setOpen(false);
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [isConnected, setOpen]);
+
+  // 组件初始化时，如果钱包已连接，确保modal处于关闭状态
+  useEffect(() => {
+    if (isConnected) {
+      setOpen(false);
+    }
+  }, []); // 只在组件挂载时执行一次
+
+  // 始终创建这些hooks，无论游戏状态如何
   const x = useMotionValue(0);
   const rotate = useTransform(x, [-200, 200], [-30, 30]);
   const opacity = useTransform(x, [-200, -100, 0, 100, 200], [0, 1, 1, 1, 0]);

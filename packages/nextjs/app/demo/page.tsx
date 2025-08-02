@@ -67,26 +67,32 @@ const DemoMemeTinder: NextPage = () => {
 
     const totalVotes = likes + dislikes;
     const completedInTime = timeLeft > 0;
-    
+
     // 计算模拟奖励
     let reward = 0;
     if (totalVotes >= 5) reward += 0.001;
     if (totalVotes >= 10) reward += 0.002;
     if (completedInTime) reward += 0.001;
 
-    const topMeme = voteResults.reduce((top, result) => {
-      if (result.vote === "like") {
-        return top || TOTAL_MEMES.find(m => m.id === result.memeId);
-      }
-      return top;
-    }, undefined as Meme | undefined);
+    const topMeme = voteResults.reduce(
+      (top, result) => {
+        if (result.vote === "like") {
+          return top || TOTAL_MEMES.find(m => m.id === result.memeId);
+        }
+        return top;
+      },
+      undefined as Meme | undefined,
+    );
 
-    const worstMeme = voteResults.reduce((worst, result) => {
-      if (result.vote === "dislike") {
-        return worst || TOTAL_MEMES.find(m => m.id === result.memeId);
-      }
-      return worst;
-    }, undefined as Meme | undefined);
+    const worstMeme = voteResults.reduce(
+      (worst, result) => {
+        if (result.vote === "dislike") {
+          return worst || TOTAL_MEMES.find(m => m.id === result.memeId);
+        }
+        return worst;
+      },
+      undefined as Meme | undefined,
+    );
 
     setGameResult({
       totalVotes,
@@ -239,9 +245,7 @@ const DemoMemeTinder: NextPage = () => {
             开始演示 🚀
           </button>
 
-          <div className="mt-4 text-sm text-gray-500">
-            这是演示版本，不需要连接钱包
-          </div>
+          <div className="mt-4 text-sm text-gray-500">这是演示版本，不需要连接钱包</div>
         </div>
       </div>
     );
@@ -274,12 +278,8 @@ const DemoMemeTinder: NextPage = () => {
                   <div className="text-gray-600">总投票数</div>
                 </div>
                 <div className="text-center">
-                  <div className="text-2xl font-bold text-purple-600">
-                    {gameResult.completedInTime ? "✅" : "⏰"}
-                  </div>
-                  <div className="text-gray-600">
-                    {gameResult.completedInTime ? "按时完成" : "时间到"}
-                  </div>
+                  <div className="text-2xl font-bold text-purple-600">{gameResult.completedInTime ? "✅" : "⏰"}</div>
+                  <div className="text-gray-600">{gameResult.completedInTime ? "按时完成" : "时间到"}</div>
                 </div>
               </div>
 
@@ -298,7 +298,7 @@ const DemoMemeTinder: NextPage = () => {
               再次演示
             </button>
             <button
-              onClick={() => window.location.href = '/'}
+              onClick={() => (window.location.href = "/")}
               className="bg-gray-500 text-white font-bold py-3 px-6 rounded-xl hover:bg-gray-600 transition-all duration-200 w-full"
             >
               返回首页
@@ -350,11 +350,7 @@ const DemoMemeTinder: NextPage = () => {
               }}
             >
               <div className="w-full h-full rounded-3xl overflow-hidden">
-                <img
-                  src={meme.imageUrl}
-                  alt={meme.title}
-                  className="w-full h-3/4 object-cover"
-                />
+                <img src={meme.imageUrl} alt={meme.title} className="w-full h-3/4 object-cover" />
                 <div className="p-4">
                   <h3 className="font-bold text-lg text-gray-800">{meme.title}</h3>
                   <p className="text-gray-600 text-sm">{meme.description}</p>
@@ -379,11 +375,7 @@ const DemoMemeTinder: NextPage = () => {
               whileDrag={{ scale: 1.05 }}
             >
               <div className="w-full h-full rounded-3xl overflow-hidden">
-                <img
-                  src={currentMeme.imageUrl}
-                  alt={currentMeme.title}
-                  className="w-full h-3/4 object-cover"
-                />
+                <img src={currentMeme.imageUrl} alt={currentMeme.title} className="w-full h-3/4 object-cover" />
                 <div className="p-4">
                   <h3 className="font-bold text-lg text-gray-800">{currentMeme.title}</h3>
                   <p className="text-gray-600 text-sm">{currentMeme.description}</p>
