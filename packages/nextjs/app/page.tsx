@@ -36,7 +36,24 @@ const Home: NextPage = () => {
           </div>
 
           {/* Feature Cards */}
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 max-w-6xl w-full mb-12">
+          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 max-w-7xl w-full mb-12">
+            {/* Demo Card */}
+            <div className="bg-white rounded-2xl p-6 shadow-xl hover:shadow-2xl transition-all duration-300 transform hover:scale-105 border-4 border-purple-300">
+              <div className="text-center">
+                <div className="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <span className="text-2xl">🎭</span>
+                </div>
+                <h3 className="text-2xl font-bold text-gray-800 mb-3">演示版本</h3>
+                <p className="text-gray-600 mb-6">体验滑动投票界面，无需连接钱包即可演示</p>
+                <Link
+                  href="/demo"
+                  className="w-full bg-gradient-to-r from-purple-500 to-pink-500 text-white font-bold py-3 px-6 rounded-xl hover:from-purple-600 hover:to-pink-600 transition-all duration-300 inline-block"
+                >
+                  🎭 演示体验
+                </Link>
+              </div>
+            </div>
+
             {/* Start Game Card */}
             <div className="bg-white rounded-2xl p-6 shadow-xl hover:shadow-2xl transition-all duration-300 transform hover:scale-105">
               <div className="text-center">
