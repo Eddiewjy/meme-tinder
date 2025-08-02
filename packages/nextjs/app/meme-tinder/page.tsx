@@ -144,7 +144,11 @@ const MemeTinder: NextPage = () => {
   // 计算游戏结果
   const calculateGameResult = useCallback(() => {
     const totalVotes = likes + dislikes;
-    const completedInTime = currentMemeIndex >= TOTAL_MEMES.length - 1;
+    const allMemesCompleted = currentMemeIndex >= TOTAL_MEMES.length;
+    const timeRemaining = timeLeft > 0;
+
+    // 更新判断逻辑：要么时间内完成所有meme，要么所有meme都被评价完
+    const completedInTime = allMemesCompleted || timeRemaining;
 
     // 计算投票统计
     const memeVoteStats = TOTAL_MEMES.map(meme => {
@@ -170,8 +174,10 @@ const MemeTinder: NextPage = () => {
 
     // 计算奖励
     let reward = 0;
-    if (completedInTime) {
-      reward += 100; // 完成奖励
+    if (allMemesCompleted) {
+      reward += 100; // 完成所有meme奖励
+    } else if (timeRemaining) {
+      reward += 50; // 时间内完成奖励
     }
     reward += Math.floor(totalVotes / 10) * 5; // 投票奖励
 
@@ -179,21 +185,22 @@ const MemeTinder: NextPage = () => {
       totalVotes,
       likes,
       dislikes,
-      completedInTime,
+      completedInTime: allMemesCompleted, // 这里改为是否完成所有meme
       reward,
       topMeme,
       worstMeme,
     };
 
     setGameResult(result);
-  }, [likes, dislikes, currentMemeIndex, voteResults]);
+  }, [likes, dislikes, currentMemeIndex, voteResults, timeLeft]);
 
-  // 计时器
+  // 计时器 - 同时检查时间和是否完成所有meme
   useEffect(() => {
     if (!gameStarted || gameEnded) return;
 
     const timer = setInterval(() => {
       setTimeLeft(prev => {
+        // 检查时间是否到了
         if (prev <= 1000) {
           setGameEnded(true);
           calculateGameResult();
@@ -205,6 +212,16 @@ const MemeTinder: NextPage = () => {
 
     return () => clearInterval(timer);
   }, [gameStarted, gameEnded, calculateGameResult]);
+
+  // 监听meme完成情况 - 当所有meme都完成时立即结束游戏
+  useEffect(() => {
+    if (!gameStarted || gameEnded) return;
+
+    if (currentMemeIndex >= TOTAL_MEMES.length) {
+      setGameEnded(true);
+      calculateGameResult();
+    }
+  }, [currentMemeIndex, gameStarted, gameEnded, calculateGameResult]);
 
   // 开始游戏
   const startGame = () => {
@@ -296,7 +313,7 @@ const MemeTinder: NextPage = () => {
 
     try {
       const amountInWei = BigInt(Math.floor(parseFloat(depositAmount) * 1e18));
-      
+
       const tx = await depositFunds({
         functionName: "deposit",
         value: amountInWei,
@@ -478,52 +495,266 @@ const MemeTinder: NextPage = () => {
     );
   }
 
-  // 游戏结束界面
+  // 游戏结束界面 - 详细汇总表
   if (gameEnded && gameResult) {
+    // 计算每个meme的投票统计
+    const memeVoteStats = TOTAL_MEMES.map(meme => {
+      const memeVotes = voteResults.filter(v => v.memeId === meme.id);
+      const likesCount = memeVotes.filter(v => v.vote === "like").length;
+      const dislikesCount = memeVotes.filter(v => v.vote === "dislike").length;
+      const totalVotesForMeme = likesCount + dislikesCount;
+      const likeRate = totalVotesForMeme > 0 ? (likesCount / totalVotesForMeme) * 100 : 0;
+
+      return {
+        meme,
+        likesCount,
+        dislikesCount,
+        likeRate,
+        totalVotes: totalVotesForMeme,
+      };
+    }).sort((a, b) => b.likeRate - a.likeRate); // 按支持率排序
+
     return (
-      <div className="min-h-screen bg-gradient-to-br from-pink-400 via-purple-500 to-indigo-600 flex items-center justify-center p-4">
-        <div className="bg-white rounded-3xl p-8 max-w-md w-full text-center shadow-2xl">
-          <TrophyIcon className="w-16 h-16 text-yellow-500 mx-auto mb-4" />
-          <h2 className="text-3xl font-bold text-gray-800 mb-6">游戏结束！</h2>
+      <div className="min-h-screen bg-gradient-to-br from-pink-400 via-purple-500 to-indigo-600 p-4">
+        <div className="max-w-4xl mx-auto">
+          {/* 头部总结 */}
+          <div className="bg-white rounded-3xl p-6 mb-6 text-center shadow-2xl">
+            <TrophyIcon className="w-16 h-16 text-yellow-500 mx-auto mb-4" />
+            <h2 className="text-3xl font-bold text-gray-800 mb-4">🎉 投票汇总报告</h2>
 
-          <div className="space-y-4 mb-8">
-            <div className="bg-green-50 rounded-lg p-4">
-              <div className="text-2xl font-bold text-green-600">{gameResult.reward} ETH</div>
-              <div className="text-green-700 text-sm">获得奖励</div>
+            {/* 总体统计 */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+              <div className="bg-gradient-to-br from-pink-100 to-pink-200 rounded-lg p-4">
+                <div className="text-2xl font-bold text-pink-600">{gameResult.totalVotes}</div>
+                <div className="text-pink-700 text-sm">总投票数</div>
+              </div>
+              <div className="bg-gradient-to-br from-green-100 to-green-200 rounded-lg p-4">
+                <div className="text-2xl font-bold text-green-600">{gameResult.likes}</div>
+                <div className="text-green-700 text-sm">👍 喜欢</div>
+              </div>
+              <div className="bg-gradient-to-br from-red-100 to-red-200 rounded-lg p-4">
+                <div className="text-2xl font-bold text-red-600">{gameResult.dislikes}</div>
+                <div className="text-red-700 text-sm">👎 不喜欢</div>
+              </div>
+              <div className="bg-gradient-to-br from-yellow-100 to-yellow-200 rounded-lg p-4">
+                <div className="text-2xl font-bold text-yellow-600">{gameResult.reward}</div>
+                <div className="text-yellow-700 text-sm">获得奖励</div>
+              </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="bg-pink-50 rounded-lg p-3">
-                <div className="text-xl font-bold text-pink-600">{gameResult.likes}</div>
-                <div className="text-pink-700 text-sm">喜欢</div>
-              </div>
-              <div className="bg-gray-50 rounded-lg p-3">
-                <div className="text-xl font-bold text-gray-600">{gameResult.dislikes}</div>
-                <div className="text-gray-700 text-sm">不喜欢</div>
-              </div>
+            {/* 完成状态 */}
+            <div
+              className={`inline-flex items-center px-4 py-2 rounded-full text-sm font-medium ${
+                gameResult.completedInTime ? "bg-green-100 text-green-800" : "bg-orange-100 text-orange-800"
+              }`}
+            >
+              {(() => {
+                const allMemesCompleted = currentMemeIndex >= TOTAL_MEMES.length;
+                const timeRemaining = timeLeft > 0;
+
+                if (allMemesCompleted && timeRemaining) {
+                  return "🎯 完美！提前完成所有投票！";
+                } else if (allMemesCompleted && !timeRemaining) {
+                  return "✅ 刚好完成所有投票！";
+                } else if (!allMemesCompleted && !timeRemaining) {
+                  return `⏰ 时间到！完成了 ${currentMemeIndex}/${TOTAL_MEMES.length} 个投票`;
+                } else {
+                  return "✅ 游戏完成！";
+                }
+              })()}
             </div>
-
-            {gameResult.topMeme && (
-              <div className="bg-yellow-50 rounded-lg p-4">
-                <div className="text-sm text-yellow-700 mb-1">🔥 最火 Meme</div>
-                <div className="font-bold text-yellow-800">{gameResult.topMeme.title}</div>
-              </div>
-            )}
-
-            {gameResult.worstMeme && (
-              <div className="bg-blue-50 rounded-lg p-4">
-                <div className="text-sm text-blue-700 mb-1">📉 冷门 Meme</div>
-                <div className="font-bold text-blue-800">{gameResult.worstMeme.title}</div>
-              </div>
-            )}
           </div>
 
-          <button
-            onClick={() => setGameStarted(false)}
-            className="w-full bg-gradient-to-r from-pink-500 to-purple-600 text-white font-bold py-4 px-6 rounded-xl hover:from-pink-600 hover:to-purple-700 transition-all duration-300"
-          >
-            再来一局
-          </button>
+          {/* 详细投票统计表 */}
+          <div className="bg-white rounded-3xl p-6 shadow-2xl">
+            <h3 className="text-2xl font-bold text-gray-800 mb-6 text-center">📊 Meme 排行榜</h3>
+
+            {/* 表格头部 */}
+            <div className="hidden md:grid md:grid-cols-6 gap-4 pb-4 border-b border-gray-200 font-semibold text-gray-700">
+              <div className="col-span-1">排名</div>
+              <div className="col-span-2">Meme</div>
+              <div className="col-span-1 text-center">👍</div>
+              <div className="col-span-1 text-center">👎</div>
+              <div className="col-span-1 text-center">支持率</div>
+            </div>
+
+            {/* 投票统计列表 */}
+            <div className="space-y-4 mt-4 max-h-96 overflow-y-auto">
+              {memeVoteStats.map((stat, index) => (
+                <div key={stat.meme.id} className="bg-gray-50 rounded-lg p-4 hover:bg-gray-100 transition-colors">
+                  <div className="md:grid md:grid-cols-6 gap-4 items-center">
+                    {/* 排名 */}
+                    <div className="col-span-1 mb-2 md:mb-0">
+                      <div
+                        className={`inline-flex items-center justify-center w-8 h-8 rounded-full text-white font-bold text-sm ${
+                          index === 0
+                            ? "bg-yellow-500"
+                            : index === 1
+                              ? "bg-gray-400"
+                              : index === 2
+                                ? "bg-orange-600"
+                                : "bg-gray-300"
+                        }`}
+                      >
+                        {index + 1}
+                      </div>
+                      {index === 0 && <span className="ml-2 text-yellow-600 font-medium">👑</span>}
+                    </div>
+
+                    {/* Meme 信息 */}
+                    <div className="col-span-2 flex items-center gap-3 mb-2 md:mb-0">
+                      <img
+                        src={stat.meme.imageUrl}
+                        alt={stat.meme.title}
+                        className="w-12 h-12 rounded-lg object-cover"
+                      />
+                      <div>
+                        <div className="font-medium text-gray-800">{stat.meme.title}</div>
+                        {stat.meme.description && (
+                          <div className="text-xs text-gray-600 truncate">{stat.meme.description}</div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* 喜欢数 */}
+                    <div className="col-span-1 text-center mb-1 md:mb-0">
+                      <div className="text-green-600 font-bold">{stat.likesCount}</div>
+                    </div>
+
+                    {/* 不喜欢数 */}
+                    <div className="col-span-1 text-center mb-1 md:mb-0">
+                      <div className="text-red-600 font-bold">{stat.dislikesCount}</div>
+                    </div>
+
+                    {/* 支持率 */}
+                    <div className="col-span-1 text-center">
+                      <div className="flex flex-col items-center">
+                        <div
+                          className={`font-bold ${stat.likeRate >= 60 ? "text-green-600" : stat.likeRate >= 40 ? "text-yellow-600" : "text-red-600"}`}
+                        >
+                          {stat.totalVotes > 0 ? `${stat.likeRate.toFixed(1)}%` : "N/A"}
+                        </div>
+                        {stat.totalVotes > 0 && (
+                          <div className="w-16 bg-gray-200 rounded-full h-2 mt-1">
+                            <div
+                              className={`h-2 rounded-full ${stat.likeRate >= 60 ? "bg-green-500" : stat.likeRate >= 40 ? "bg-yellow-500" : "bg-red-500"}`}
+                              style={{ width: `${stat.likeRate}%` }}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 移动端额外信息 */}
+                  <div className="md:hidden mt-2 flex justify-between text-sm text-gray-600">
+                    <span>
+                      👍 {stat.likesCount} 👎 {stat.dislikesCount}
+                    </span>
+                    <span
+                      className={`font-medium ${stat.likeRate >= 60 ? "text-green-600" : stat.likeRate >= 40 ? "text-yellow-600" : "text-red-600"}`}
+                    >
+                      {stat.totalVotes > 0 ? `${stat.likeRate.toFixed(1)}%` : "N/A"}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* 特殊奖项 */}
+            {memeVoteStats.length > 0 && (
+              <div className="mt-6 pt-6 border-t border-gray-200">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {/* 最受欢迎 */}
+                  {memeVoteStats[0] && (
+                    <div className="bg-gradient-to-br from-yellow-100 to-yellow-200 rounded-lg p-4 text-center">
+                      <div className="text-yellow-700 text-sm font-medium mb-2">🏆 最受欢迎</div>
+                      <img
+                        src={memeVoteStats[0].meme.imageUrl}
+                        alt={memeVoteStats[0].meme.title}
+                        className="w-16 h-16 rounded-lg object-cover mx-auto mb-2"
+                      />
+                      <div className="font-bold text-yellow-800">{memeVoteStats[0].meme.title}</div>
+                      <div className="text-yellow-700 text-sm">{memeVoteStats[0].likeRate.toFixed(1)}% 支持率</div>
+                    </div>
+                  )}
+
+                  {/* 最具争议 */}
+                  {(() => {
+                    const controversialMeme = memeVoteStats
+                      .filter(stat => stat.totalVotes > 0)
+                      .sort((a, b) => Math.abs(50 - b.likeRate) - Math.abs(50 - a.likeRate))[0];
+
+                    return (
+                      controversialMeme && (
+                        <div className="bg-gradient-to-br from-purple-100 to-purple-200 rounded-lg p-4 text-center">
+                          <div className="text-purple-700 text-sm font-medium mb-2">⚡ 最具争议</div>
+                          <img
+                            src={controversialMeme.meme.imageUrl}
+                            alt={controversialMeme.meme.title}
+                            className="w-16 h-16 rounded-lg object-cover mx-auto mb-2"
+                          />
+                          <div className="font-bold text-purple-800">{controversialMeme.meme.title}</div>
+                          <div className="text-purple-700 text-sm">{controversialMeme.likeRate.toFixed(1)}% 支持率</div>
+                        </div>
+                      )
+                    );
+                  })()}
+
+                  {/* 最冷门 */}
+                  {memeVoteStats.length > 0 && memeVoteStats[memeVoteStats.length - 1].totalVotes > 0 && (
+                    <div className="bg-gradient-to-br from-blue-100 to-blue-200 rounded-lg p-4 text-center">
+                      <div className="text-blue-700 text-sm font-medium mb-2">❄️ 最需要爱</div>
+                      <img
+                        src={memeVoteStats[memeVoteStats.length - 1].meme.imageUrl}
+                        alt={memeVoteStats[memeVoteStats.length - 1].meme.title}
+                        className="w-16 h-16 rounded-lg object-cover mx-auto mb-2"
+                      />
+                      <div className="font-bold text-blue-800">
+                        {memeVoteStats[memeVoteStats.length - 1].meme.title}
+                      </div>
+                      <div className="text-blue-700 text-sm">
+                        {memeVoteStats[memeVoteStats.length - 1].likeRate.toFixed(1)}% 支持率
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* 操作按钮 */}
+            <div className="flex flex-col sm:flex-row gap-4 mt-8">
+              <button
+                onClick={() => {
+                  setGameStarted(false);
+                  setGameEnded(false);
+                  setCurrentMemeIndex(0);
+                  setLikes(0);
+                  setDislikes(0);
+                  setVoteResults([]);
+                  setGameResult(null);
+                }}
+                className="flex-1 bg-gradient-to-r from-pink-500 to-purple-600 text-white font-bold py-3 px-6 rounded-xl hover:from-pink-600 hover:to-purple-700 transition-all duration-300"
+              >
+                🔄 再来一局
+              </button>
+              <button
+                onClick={() => {
+                  const dataStr = JSON.stringify(memeVoteStats, null, 2);
+                  const dataBlob = new Blob([dataStr], { type: "application/json" });
+                  const url = URL.createObjectURL(dataBlob);
+                  const link = document.createElement("a");
+                  link.href = url;
+                  link.download = `meme-voting-results-${new Date().toISOString().split("T")[0]}.json`;
+                  link.click();
+                  URL.revokeObjectURL(url);
+                }}
+                className="flex-1 bg-gradient-to-r from-green-500 to-blue-600 text-white font-bold py-3 px-6 rounded-xl hover:from-green-600 hover:to-blue-700 transition-all duration-300"
+              >
+                📊 导出数据
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -567,10 +798,11 @@ const MemeTinder: NextPage = () => {
               <div className="flex flex-col items-center gap-2 mt-2">
                 <div className="flex items-center gap-2">
                   <span className="text-yellow-300 text-sm">
-                    🏦 合约余额: {userStats[2] ? parseFloat((Number(userStats[2]) / 1e18).toString()).toFixed(4) : "0"} MON
+                    🏦 合约余额: {userStats[2] ? parseFloat((Number(userStats[2]) / 1e18).toString()).toFixed(4) : "0"}{" "}
+                    MON
                   </span>
                 </div>
-                
+
                 {/* 充值和提现按钮 */}
                 <div className="flex gap-2">
                   <button
@@ -790,17 +1022,15 @@ const DepositModal = ({
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-2xl p-6 max-w-sm w-full">
         <h2 className="text-2xl font-bold text-gray-800 mb-4 text-center">预充值到合约</h2>
-        <p className="text-gray-600 text-sm mb-4 text-center">
-          预充值后，您可以在游戏中快速滑动，无需每次确认交易
-        </p>
-        
+        <p className="text-gray-600 text-sm mb-4 text-center">预充值后，您可以在游戏中快速滑动，无需每次确认交易</p>
+
         <div className="mb-4">
           <label className="block text-sm font-medium text-gray-700 mb-2">充值金额 (MON)</label>
           <input
             type="number"
             step="0.001"
             value={depositAmount}
-            onChange={(e) => setDepositAmount(e.target.value)}
+            onChange={e => setDepositAmount(e.target.value)}
             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             placeholder="0.01"
             min="0.001"
