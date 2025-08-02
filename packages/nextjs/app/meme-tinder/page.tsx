@@ -4,9 +4,10 @@ import { useCallback, useEffect, useState } from "react";
 import { PanInfo, motion, useMotionValue, useTransform } from "framer-motion";
 import type { NextPage } from "next";
 import { ClockIcon, FireIcon, HeartIcon, TrophyIcon, XMarkIcon } from "@heroicons/react/24/solid";
+import { getLocalMemes } from "~~/utils/memeLoader";
 import { notification } from "~~/utils/scaffold-eth";
 
-interface Meme {
+export interface Meme {
   id: number;
   imageUrl: string;
   title: string;
@@ -30,36 +31,9 @@ interface GameResult {
   worstMeme?: Meme;
 }
 
-// 生成100个meme数据
-const generateMemes = (): Meme[] => {
-  const memeTemplates = [
-    { title: "Distracted Boyfriend", url: "https://i.imgflip.com/1ur9b0.jpg" },
-    { title: "Drake Pointing", url: "https://i.imgflip.com/30b1gx.jpg" },
-    { title: "Expanding Brain", url: "https://i.imgflip.com/1jwhww.jpg" },
-    { title: "Surprised Pikachu", url: "https://i.imgflip.com/26am.jpg" },
-    { title: "Stonks", url: "https://i.imgflip.com/4t0m5.jpg" },
-    { title: "Success Kid", url: "https://i.imgflip.com/1bij.jpg" },
-    { title: "Woman Yelling at Cat", url: "https://i.imgflip.com/345v97.jpg" },
-    { title: "Change My Mind", url: "https://i.imgflip.com/24y43o.jpg" },
-    { title: "This Is Fine", url: "https://i.imgflip.com/26ufmz.jpg" },
-    { title: "Mocking SpongeBob", url: "https://i.imgflip.com/1otk96.jpg" },
-  ];
-
-  const memes: Meme[] = [];
-  for (let i = 0; i < 30; i++) {
-    const template = memeTemplates[i % memeTemplates.length];
-    memes.push({
-      id: i + 1,
-      imageUrl: template.url,
-      title: `${template.title} #${Math.floor(i / memeTemplates.length) + 1}`,
-      description: `Meme variant ${i + 1} - Rate this spicy content!`,
-    });
-  }
-  return memes;
-};
-
-const TOTAL_MEMES = generateMemes();
-const GAME_DURATION = 20 * 1000; // 20 seconds in milliseconds
+// 使用本地meme图片
+const TOTAL_MEMES = getLocalMemes();
+const GAME_DURATION = 30 * 1000; // 30 seconds in milliseconds
 
 const MemeTinder: NextPage = () => {
   const [currentMemeIndex, setCurrentMemeIndex] = useState(0);
