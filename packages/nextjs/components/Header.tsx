@@ -5,7 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { hardhat } from "viem/chains";
-import { Bars3Icon, BugAntIcon } from "@heroicons/react/24/outline";
+import { Bars3Icon, BugAntIcon, FireIcon, TrophyIcon } from "@heroicons/react/24/outline";
 import { FaucetButton, RainbowKitCustomConnectButton } from "~~/components/scaffold-eth";
 import { useOutsideClick, useTargetNetwork } from "~~/hooks/scaffold-eth";
 
@@ -17,8 +17,18 @@ type HeaderMenuLink = {
 
 export const menuLinks: HeaderMenuLink[] = [
   {
-    label: "Home",
+    label: "首页",
     href: "/",
+  },
+  {
+    label: "Meme 投票",
+    href: "/meme-tinder",
+    icon: <FireIcon className="h-4 w-4" />,
+  },
+  {
+    label: "排行榜",
+    href: "/meme-leaderboard",
+    icon: <TrophyIcon className="h-4 w-4" />,
   },
   {
     label: "Debug Contracts",
