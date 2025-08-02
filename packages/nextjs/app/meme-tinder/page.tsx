@@ -46,7 +46,7 @@ const generateMemes = (): Meme[] => {
   ];
 
   const memes: Meme[] = [];
-  for (let i = 0; i < 100; i++) {
+  for (let i = 0; i < 30; i++) {
     const template = memeTemplates[i % memeTemplates.length];
     memes.push({
       id: i + 1,
@@ -59,7 +59,7 @@ const generateMemes = (): Meme[] => {
 };
 
 const TOTAL_MEMES = generateMemes();
-const GAME_DURATION = 5 * 60 * 1000; // 5 minutes in milliseconds
+const GAME_DURATION = 20 * 1000; // 20 seconds in milliseconds
 
 const MemeTinder: NextPage = () => {
   const [currentMemeIndex, setCurrentMemeIndex] = useState(0);
@@ -175,8 +175,8 @@ const MemeTinder: NextPage = () => {
     setIsVoting(true);
     try {
       // 这里应该调用智能合约进行投票
-      // 暂时模拟交易延迟
-      await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 2000));
+      // 暂时模拟交易延迟 - demo版本更快
+      await new Promise(resolve => setTimeout(resolve, 500 + Math.random() * 1000));
 
       const voteResult: VoteResult = {
         memeId: currentMeme.id,
@@ -225,7 +225,7 @@ const MemeTinder: NextPage = () => {
         submitVote(vote);
         x.set(0);
         setIsAnimating(false);
-      }, 300);
+      }, 200);
     } else {
       x.set(0);
     }
@@ -244,7 +244,7 @@ const MemeTinder: NextPage = () => {
       submitVote("like");
       x.set(0);
       setIsAnimating(false);
-    }, 300);
+    }, 200);
   };
 
   const handleDislike = () => {
@@ -256,7 +256,7 @@ const MemeTinder: NextPage = () => {
       submitVote("dislike");
       x.set(0);
       setIsAnimating(false);
-    }, 300);
+    }, 200);
   };
 
   // 格式化时间
